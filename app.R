@@ -100,10 +100,21 @@ ui <- fluidPage(
         border: 1px solid #ddd;
         padding: 8px;
       }
+      .version-info {
+        font-size: 12px;
+        color: #777;
+        text-align: right;
+        margin-top: 5px;
+      }
     "))
   ),
   
-  titlePanel("Rock Image Viewer with Classification"),
+  titlePanel(
+    div(
+      "Rock Image Viewer with Classification",
+      div(class = "version-info", "Version 18 (2025-06-10)")
+    )
+  ),
   
   sidebarLayout(
     sidebarPanel(
@@ -136,11 +147,12 @@ ui <- fluidPage(
       actionButton("clearSelectedImages", "Clear Selections", class = "btn-sm btn-warning"),
       actionButton("openDescriptionForm", "Open Description Form", class = "btn-sm btn-success"),
       
-      # Debug information and tools
+      # Library management
       hr(),
-      h4("Debug Information"),
-      verbatimTextOutput("libraryDebugInfo"),
-      actionButton("reloadLibrary", "Reload Mineral Library", class = "btn-sm btn-info")
+      h4("Mineral Reference Library"),
+      actionButton("useDefaultLibrary", "Use Default Library", class = "btn-sm btn-info"),
+      actionButton("createCustomLibrary", "Create Simple Library", class = "btn-sm btn-warning"),
+      verbatimTextOutput("libraryStatus")
     ),
     
     mainPanel(
@@ -158,11 +170,11 @@ server <- function(input, output, session) {
   
   # Display current user and time
   output$userInfo <- renderText({
-    paste("Current User:", "westabraIt")
+    paste("Current User:", "westabraЧто")
   })
   
   output$currentDateTime <- renderText({
-    "2025-06-10 12:00:26"  # Updated fixed date/time as provided
+    "2025-06-10 14:27:45"  # Updated fixed date/time as provided
   })
   
   # Store loaded dropdown option data
@@ -181,186 +193,252 @@ server <- function(input, output, session) {
   
   # Store mineral library data
   mineral_library <- reactiveVal(NULL)
-  debug_info <- reactiveVal("")
+  library_status <- reactiveVal("Mineral reference library not loaded yet.")
   
-  # Function to load mineral library data
-  loadMineralLibrary <- function() {
-    debug_log <- "Attempting to load mineral library...\n"
-    
-    # List of paths to try, in order of preference
-    paths_to_try <- c(
-      "data/mineral_libraries/biblio_for_mineral_descriptions.csv",
-      "data/biblio_for_mineral_descriptions.csv",
-      "biblio_for_mineral_descriptions.csv"
+  # Create a default library with common minerals
+  createDefaultLibrary <- function() {
+    default_data <- data.frame(
+      Mineral = c(
+        "Quartz", "Quartz", 
+        "Biotite", "Biotite", 
+        "Plagioclase", "Plagioclase", 
+        "Muscovite", "Muscovite", 
+        "Hornblende", "Hornblende", 
+        "Olivine", "Olivine",
+        "K-feldspar", "K-feldspar",
+        "Pyroxene", "Pyroxene",
+        "Calcite", "Calcite",
+        "Garnet", "Garnet"
+      ),
+      Descriptions = c(
+        "Colorless in PPL, low relief", 
+        "First-order gray interference colors in XPL",
+        "Strong pleochroism from light brown to dark brown in PPL", 
+        "Bird's-eye extinction in XPL",
+        "Polysynthetic twinning visible in XPL", 
+        "Low relief in PPL, generally colorless",
+        "Colorless in PPL with high birefringence", 
+        "Bird's-eye extinction in XPL",
+        "Green to brown pleochroism in PPL", 
+        "Oblique extinction in XPL",
+        "High relief in PPL, colorless to pale green", 
+        "High order interference colors in XPL",
+        "Carlsbad twinning in XPL",
+        "Tartan or microcline twinning in some varieties",
+        "Two good cleavages at 87-93 degrees",
+        "High relief and straight extinction",
+        "Extreme birefringence with rhombohedral cleavage",
+        "Shows characteristic twinkling when rotating the stage",
+        "Isotropic behavior in XPL",
+        "High relief, rounded crystals"
+      ),
+      Rocks_type = c(
+        "Common in all rock types",
+        "Essential mineral in granites and metamorphic rocks",
+        "Common in igneous rocks",
+        "Major component in granites and gneisses",
+        "Essential in most igneous rocks",
+        "Common in volcanic and plutonic rocks",
+        "Common in metamorphic rocks",
+        "Important in schists and gneisses",
+        "Common in intermediate to mafic igneous rocks",
+        "Found in amphibolites and some metamorphic rocks",
+        "Characteristic of mafic and ultramafic rocks",
+        "Common in basalt and peridotite",
+        "Common in granites and granitic rocks",
+        "Major component of felsic igneous rocks",
+        "Common in mafic and ultramafic rocks",
+        "Major component in basalts and gabbros",
+        "Main component of limestone and marble",
+        "Present in many sedimentary and metamorphic rocks",
+        "Common in metamorphic rocks",
+        "Indicator of high-grade metamorphism"
+      ),
+      Reference = c(
+        "Nesse, 2011",
+        "Deer et al., 1992",
+        "Mackenzie et al., 1982",
+        "Nesse, 2011",
+        "Blatt & Tracy, 1996",
+        "Klein & Dutrow, 2007",
+        "Deer et al., 1992",
+        "Nesse, 2011",
+        "Mackenzie et al., 1982",
+        "Klein & Dutrow, 2007",
+        "Deer et al., 1992",
+        "Nesse, 2011",
+        "Klein & Dutrow, 2007",
+        "Deer et al., 1992",
+        "Nesse, 2011",
+        "Mackenzie et al., 1982",
+        "Deer et al., 1992",
+        "Nesse, 2011",
+        "Klein & Dutrow, 2007",
+        "Deer et al., 1992"
+      ),
+      stringsAsFactors = FALSE
     )
     
-    # Create the directory if it doesn't exist
-    library_dir <- "data/mineral_libraries"
-    if(!dir.exists(library_dir)) {
-      dir.create(library_dir, recursive = TRUE)
-      debug_log <- paste0(debug_log, "Created directory: ", library_dir, "\n")
-    }
-    
-    # Try each path in order
-    library_file <- NULL
-    for(path in paths_to_try) {
-      if(file.exists(path)) {
-        library_file <- path
-        debug_log <- paste0(debug_log, "Found library file at: ", path, "\n")
-        break
-      } else {
-        debug_log <- paste0(debug_log, "File not found at: ", path, "\n")
-      }
-    }
-    
-    if(!is.null(library_file)) {
-      # Try to read the file with detailed error handling
-      tryCatch({
-        # Check file size
-        file_size <- file.info(library_file)$size
-        debug_log <- paste0(debug_log, "File size: ", file_size, " bytes\n")
-        
-        if(file_size == 0) {
-          debug_log <- paste0(debug_log, "Error: File is empty\n")
-          return(debug_log)
-        }
-        
-        # Try to read the first few lines to see if there are obvious issues
-        con <- file(library_file, "r")
-        first_lines <- readLines(con, n = 5)
-        close(con)
-        
-        debug_log <- paste0(debug_log, "First lines of the file:\n")
-        for(i in 1:length(first_lines)) {
-          debug_log <- paste0(debug_log, i, ": ", first_lines[i], "\n")
-        }
-        
-        # Try different read options
-        # First try with standard read_csv
-        library_data <- suppressMessages(read_csv(library_file))
-        debug_log <- paste0(debug_log, "Successfully loaded with read_csv\n")
-        
-        # Check if the file has the expected columns
-        expected_cols <- c("Mineral", "Descriptions", "Rocks_type", "Reference")
-        missing_cols <- expected_cols[!expected_cols %in% names(library_data)]
-        
-        if(length(missing_cols) > 0) {
-          debug_log <- paste0(debug_log, "Warning: Missing expected columns: ", 
-                              paste(missing_cols, collapse = ", "), "\n")
-          debug_log <- paste0(debug_log, "Available columns: ", paste(names(library_data), collapse = ", "), "\n")
-        }
-        
-        mineral_library(library_data)
-        debug_log <- paste0(debug_log, "Successfully loaded mineral library with ", nrow(library_data), 
-                            " entries and columns: ", paste(names(library_data), collapse = ", "), "\n")
-        
-        # List available minerals
-        minerals_in_library <- unique(library_data$Mineral)
-        debug_log <- paste0(debug_log, "Minerals found in library: ", 
-                            paste(minerals_in_library, collapse = ", "), "\n")
-        
-      }, error = function(e) {
-        debug_log <<- paste0(debug_log, "Error loading mineral library: ", e$message, "\n")
-        
-        # Try with read.csv instead
-        tryCatch({
-          library_data <- read.csv(library_file, stringsAsFactors = FALSE)
-          mineral_library(library_data)
-          debug_log <<- paste0(debug_log, "Successfully loaded with read.csv as fallback\n")
-          
-        }, error = function(e2) {
-          debug_log <<- paste0(debug_log, "Error with fallback method: ", e2$message, "\n")
-          
-          # Try with a different separator
-          tryCatch({
-            library_data <- read.csv2(library_file, stringsAsFactors = FALSE)
-            mineral_library(library_data)
-            debug_log <<- paste0(debug_log, "Successfully loaded with read.csv2 as fallback\n")
-            
-          }, error = function(e3) {
-            debug_log <<- paste0(debug_log, "Error with all loading methods\n")
-          })
-        })
-      })
-    } else {
-      debug_log <- paste0(debug_log, "No library file found at any expected location.\n")
-      debug_log <- paste0(debug_log, "Creating example library file...\n")
-      
-      # Create an example file
-      example_data <- data.frame(
-        Mineral = c("Quartz", "Quartz", "Biotite", "Biotite"),
-        Descriptions = c(
-          "Colorless in PPL, low relief",
-          "First-order gray interference colors in XPL",
-          "Strong pleochroism from light brown to dark brown",
-          "Bird's-eye extinction"
-        ),
-        Rocks_type = c(
-          "Common in all rock types",
-          "Essential mineral in granites",
-          "Common in igneous rocks",
-          "Major component in granites and gneisses"
-        ),
-        Reference = c(
-          "Nesse, 2011",
-          "Deer et al., 1992",
-          "Mackenzie et al., 1982",
-          "Nesse, 2011"
-        ),
-        stringsAsFactors = FALSE
-      )
-      
-      # Create the file in the mineral_libraries directory
-      example_file <- file.path(library_dir, "biblio_for_mineral_descriptions.csv")
-      tryCatch({
-        write.csv(example_data, example_file, row.names = FALSE)
-        mineral_library(example_data)
-        debug_log <- paste0(debug_log, "Created and loaded example library file at ", example_file, 
-                            " with ", nrow(example_data), " entries\n")
-      }, error = function(e) {
-        debug_log <- paste0(debug_log, "Error creating example library file: ", e$message, "\n")
-      })
-    }
-    
-    return(debug_log)
+    return(default_data)
   }
   
-  # Load mineral library on startup
+  # Function to create a simpler custom library with fewer entries
+  createSimpleLibrary <- function() {
+    simple_data <- data.frame(
+      Mineral = c(
+        "Quartz", 
+        "Biotite", 
+        "Plagioclase", 
+        "Muscovite", 
+        "Hornblende", 
+        "Olivine"
+      ),
+      Descriptions = c(
+        "Colorless in PPL, low relief. First-order gray interference colors in XPL.", 
+        "Strong pleochroism from light brown to dark brown in PPL. Bird's-eye extinction in XPL.",
+        "Polysynthetic twinning visible in XPL. Low relief in PPL, generally colorless.", 
+        "Colorless in PPL with high birefringence. Bird's-eye extinction in XPL.",
+        "Green to brown pleochroism in PPL. Oblique extinction in XPL.", 
+        "High relief in PPL, colorless to pale green. High order interference colors in XPL."
+      ),
+      Rocks_type = c(
+        "Common in all rock types. Essential mineral in granites and metamorphic rocks.",
+        "Common in igneous rocks. Major component in granites and gneisses.",
+        "Essential in most igneous rocks. Common in volcanic and plutonic rocks.",
+        "Common in metamorphic rocks. Important in schists and gneisses.",
+        "Common in intermediate to mafic igneous rocks. Found in amphibolites.",
+        "Characteristic of mafic and ultramafic rocks. Common in basalt and peridotite."
+      ),
+      Reference = c(
+        "Nesse, 2011; Deer et al., 1992",
+        "Mackenzie et al., 1982; Nesse, 2011",
+        "Blatt & Tracy, 1996; Klein & Dutrow, 2007",
+        "Deer et al., 1992; Nesse, 2011",
+        "Mackenzie et al., 1982; Klein & Dutrow, 2007",
+        "Deer et al., 1992; Nesse, 2011"
+      ),
+      stringsAsFactors = FALSE
+    )
+    
+    # Save the simple library to a file
+    tryCatch({
+      # Create directory if it doesn't exist
+      library_dir <- "data/mineral_libraries"
+      if(!dir.exists(library_dir)) {
+        dir.create(library_dir, recursive = TRUE)
+      }
+      
+      # Save the file
+      write.csv(simple_data, "data/mineral_libraries/simple_mineral_library.csv", row.names = FALSE)
+      library_status(paste0("Created simple mineral library with ", nrow(simple_data), " entries."))
+    }, error = function(e) {
+      library_status(paste0("Error creating simple library: ", e$message))
+    })
+    
+    return(simple_data)
+  }
+  
+  # Try to use the default library instead of loading from file
+  observeEvent(input$useDefaultLibrary, {
+    default_lib <- createDefaultLibrary()
+    mineral_library(default_lib)
+    library_status(paste0("Using built-in default library with ", nrow(default_lib), " entries."))
+  })
+  
+  # Create a simple custom library when the button is pressed
+  observeEvent(input$createCustomLibrary, {
+    simple_lib <- createSimpleLibrary()
+    mineral_library(simple_lib)
+    library_status(paste0("Created and loaded simple custom library with ", nrow(simple_lib), " entries."))
+  })
+  
+  # Initially use default library to avoid any issues
   observe({
-    log <- loadMineralLibrary()
-    debug_info(log)
+    # Create default library but don't use it yet
+    default_lib <- createDefaultLibrary()
+    
+    # Try to load user's library first (safely)
+    tryCatch({
+      # List of paths to try
+      paths_to_try <- c(
+        "data/mineral_libraries/biblio_for_mineral_descriptions.csv",
+        "data/biblio_for_mineral_descriptions.csv",
+        "biblio_for_mineral_descriptions.csv",
+        "data/mineral_libraries/simple_mineral_library.csv"
+      )
+      
+      # Try each path in order
+      loaded_successfully <- FALSE
+      for(path in paths_to_try) {
+        if(file.exists(path)) {
+          # Try to load the file with multiple approaches
+          tryCatch({
+            library_data <- read.csv(path, stringsAsFactors = FALSE, fill = TRUE)
+            mineral_library(library_data)
+            library_status(paste0("Loaded mineral library from ", path, " with ", nrow(library_data), " entries."))
+            loaded_successfully <- TRUE
+            break
+          }, error = function(e1) {
+            tryCatch({
+              library_data <- read.table(path, header = TRUE, sep = ",", fill = TRUE, quote = "\"")
+              mineral_library(library_data)
+              library_status(paste0("Loaded mineral library from ", path, " using read.table."))
+              loaded_successfully <- TRUE
+              break
+            }, error = function(e2) {
+              library_status(paste0("Could not load mineral library from ", path, ". Using default library."))
+            })
+          })
+        }
+      }
+      
+      # If no user library was loaded, use the default
+      if(!loaded_successfully) {
+        mineral_library(default_lib)
+        library_status("Using default mineral library because no custom library could be loaded.")
+      }
+    }, error = function(e) {
+      # If any unhandled error occurs, fall back to the default library
+      mineral_library(default_lib)
+      library_status("An error occurred while loading libraries. Using default library.")
+    })
   })
   
-  # Reload library when button is pressed
-  observeEvent(input$reloadLibrary, {
-    log <- loadMineralLibrary()
-    debug_info(log)
-    showNotification("Mineral library reloaded", type = "message")
-  })
-  
-  # Debug output for library loading
-  output$libraryDebugInfo <- renderText({
-    debug_info()
+  # Display library status
+  output$libraryStatus <- renderText({
+    library_status()
   })
   
   # Load data from CSV files when the app starts
   observe({
     # Load minerals from CSV (two columns)
-    minerals <- suppressMessages(read_csv("data/minerals.csv"))
-    m_choices <- setNames(minerals$mineral_id, minerals$mineral_name)
-    mineral_choices(m_choices)
+    tryCatch({
+      minerals <- suppressMessages(read_csv("data/minerals.csv"))
+      m_choices <- setNames(minerals$mineral_id, minerals$mineral_name)
+      mineral_choices(m_choices)
+    }, error = function(e) {
+      library_status(paste0(library_status(), "\nError loading minerals.csv: ", e$message))
+    })
     
     # Load textures from CSV (two columns)
-    textures <- suppressMessages(read_csv("data/textures.csv"))
-    t_choices <- setNames(textures$texture_id, textures$texture_name)
-    updateSelectInput(session, "textureSelect", choices = t_choices)
-    texture_choices(t_choices)
+    tryCatch({
+      textures <- suppressMessages(read_csv("data/textures.csv"))
+      t_choices <- setNames(textures$texture_id, textures$texture_name)
+      updateSelectInput(session, "textureSelect", choices = t_choices)
+      texture_choices(t_choices)
+    }, error = function(e) {
+      library_status(paste0(library_status(), "\nError loading textures.csv: ", e$message))
+    })
     
     # Load grain sizes from CSV (two columns)
-    grainsizes <- suppressMessages(read_csv("data/grainsizes.csv"))
-    g_choices <- setNames(grainsizes$grainsize_id, grainsizes$grainsize_name)
-    updateSelectInput(session, "grainsizeSelect", choices = g_choices)
-    grainsize_choices(g_choices)
+    tryCatch({
+      grainsizes <- suppressMessages(read_csv("data/grainsizes.csv"))
+      g_choices <- setNames(grainsizes$grainsize_id, grainsizes$grainsize_name)
+      updateSelectInput(session, "grainsizeSelect", choices = g_choices)
+      grainsize_choices(g_choices)
+    }, error = function(e) {
+      library_status(paste0(library_status(), "\nError loading grainsizes.csv: ", e$message))
+    })
   })
   
   # Helper function to get mineral name from ID
@@ -377,14 +455,38 @@ server <- function(input, output, session) {
   
   # Helper function to find library entries for a mineral
   findLibraryEntriesForMineral <- function(mineral_name) {
-    library_data <- mineral_library()
-    if(is.null(library_data) || is.null(mineral_name)) return(NULL)
-    
-    # Find entries with matching mineral name (case-insensitive)
-    matches <- which(tolower(library_data$Mineral) == tolower(mineral_name))
-    if(length(matches) == 0) return(NULL)
-    
-    return(library_data[matches, ])
+    tryCatch({
+      library_data <- mineral_library()
+      if(is.null(library_data) || is.null(mineral_name)) return(NULL)
+      
+      # Convert mineral name to lowercase for case-insensitive matching
+      mineral_name_lower <- tolower(mineral_name)
+      
+      # Find entries with matching mineral name (case-insensitive)
+      if("Mineral" %in% names(library_data)) {
+        matches <- which(tolower(library_data$Mineral) == mineral_name_lower)
+        
+        # If no exact match, try partial matching
+        if(length(matches) == 0) {
+          for(i in 1:nrow(library_data)) {
+            if(!is.na(library_data$Mineral[i]) && 
+               grepl(mineral_name_lower, tolower(library_data$Mineral[i]), fixed = TRUE)) {
+              matches <- c(matches, i)
+            }
+          }
+        }
+        
+        if(length(matches) == 0) return(NULL)
+        
+        return(library_data[matches, ])
+      }
+      
+      return(NULL)
+    }, error = function(e) {
+      # If any error occurs while searching, just return NULL
+      library_status(paste0(library_status(), "\nError finding library entries: ", e$message))
+      return(NULL)
+    })
   }
   
   # Create checkboxes for mineral selection
@@ -424,16 +526,29 @@ server <- function(input, output, session) {
   
   # Get list of image files from the www folder
   image_files <- tryCatch({
-    list.files(path = "www/images", pattern = "\\.(jpg|jpeg|png|gif)$", full.names = FALSE)
+    if(dir.exists("www/images")) {
+      list.files(path = "www/images", pattern = "\\.(jpg|jpeg|png|gif)$", full.names = FALSE)
+    } else {
+      # Create directory if it doesn't exist
+      dir.create("www/images", recursive = TRUE, showWarnings = FALSE)
+      character(0)
+    }
   }, error = function(e) {
-    debug_log <- debug_info()
-    debug_log <- paste0(debug_log, "Error loading images: ", e$message, "\n")
-    debug_info(debug_log)
+    library_status(paste0(library_status(), "\nError loading images: ", e$message))
     return(character(0))
   })
   
   # Display images in the container
   output$imageContainer <- renderUI({
+    # Check if there are images to display
+    if(length(image_files) == 0) {
+      return(div(
+        style = "text-align: center; padding: 20px;",
+        h3("No images found"),
+        p("Please add images to the www/images directory.")
+      ))
+    }
+    
     # Create a list of image tags
     image_tags <- lapply(image_files, function(img) {
       # Check if this image is selected
@@ -490,119 +605,118 @@ server <- function(input, output, session) {
   
   # Function to create mineral library panel
   createMineralLibraryPanel <- function(mineral_id, position) {
-    # Get mineral name from ID
-    mineral_name <- getMineralNameFromId(mineral_id)
-    if(is.null(mineral_name)) {
-      return(div(
-        class = "mineral-library-panel",
-        p(paste("No mineral name found for ID:", mineral_id))
-      ))
-    }
-    
-    # Find library entries for this mineral
-    entries <- findLibraryEntriesForMineral(mineral_name)
-    if(is.null(entries) || nrow(entries) == 0) {
-      # Log this for debugging
-      current_log <- debug_info()
-      current_log <- paste0(current_log, "\nLooking for mineral '", mineral_name, "' (ID: ", mineral_id, ") in library: Not found\n")
-      debug_info(current_log)
+    tryCatch({
+      # Get mineral name from ID
+      mineral_name <- getMineralNameFromId(mineral_id)
+      if(is.null(mineral_name)) {
+        return(div(
+          class = "mineral-library-panel",
+          p(paste("No mineral name found for ID:", mineral_id))
+        ))
+      }
       
-      return(div(
-        class = "mineral-library-panel",
-        p(paste("No library entries found for mineral:", mineral_name))
-      ))
-    } else {
-      # Log success for debugging
-      current_log <- debug_info()
-      current_log <- paste0(current_log, "\nFound ", nrow(entries), " entries for mineral '", mineral_name, "' (ID: ", mineral_id, ")\n")
-      debug_info(current_log)
-    }
-    
-    # Create sections for each column
-    sections <- list()
-    
-    # Descriptions section
-    if("Descriptions" %in% names(entries)) {
-      descriptions <- unique(entries$Descriptions)
-      descriptions <- descriptions[!is.na(descriptions) & descriptions != ""]
+      # Find library entries for this mineral
+      entries <- findLibraryEntriesForMineral(mineral_name)
+      if(is.null(entries) || nrow(entries) == 0) {
+        return(div(
+          class = "mineral-library-panel",
+          p(paste("No library entries found for mineral:", mineral_name))
+        ))
+      }
       
-      if(length(descriptions) > 0) {
-        sections$descriptions <- div(
-          class = "library-section",
-          div(class = "library-title", "Descriptions"),
-          lapply(descriptions, function(desc) {
-            div(
-              class = "library-entry",
-              onclick = sprintf(
-                "var textArea = document.getElementById('morphology_%s'); if(textArea) { if(textArea.value) textArea.value += '\\n'; textArea.value += '%s'; textArea.dispatchEvent(new Event('input')); }",
-                position, gsub("'", "\\\\'", desc)
-              ),
-              desc
-            )
-          })
+      # Create sections for each column
+      sections <- list()
+      
+      # Descriptions section
+      if("Descriptions" %in% names(entries)) {
+        descriptions <- unique(entries$Descriptions)
+        descriptions <- descriptions[!is.na(descriptions) & descriptions != ""]
+        
+        if(length(descriptions) > 0) {
+          sections$descriptions <- div(
+            class = "library-section",
+            div(class = "library-title", "Descriptions"),
+            lapply(descriptions, function(desc) {
+              div(
+                class = "library-entry",
+                onclick = sprintf(
+                  "var textArea = document.getElementById('morphology_%s'); if(textArea) { if(textArea.value) textArea.value += '\\n'; textArea.value += '%s'; textArea.dispatchEvent(new Event('input')); }",
+                  position, gsub("'", "\\\\'", desc)
+                ),
+                desc
+              )
+            })
+          )
+        }
+      }
+      
+      # Rock types section
+      if("Rocks_type" %in% names(entries)) {
+        rock_types <- unique(entries$Rocks_type)
+        rock_types <- rock_types[!is.na(rock_types) & rock_types != ""]
+        
+        if(length(rock_types) > 0) {
+          sections$rock_types <- div(
+            class = "library-section",
+            div(class = "library-title", "Rock Types"),
+            lapply(rock_types, function(rt) {
+              div(
+                class = "library-entry",
+                onclick = sprintf(
+                  "var textArea = document.getElementById('morphology_%s'); if(textArea) { if(textArea.value) textArea.value += '\\n'; textArea.value += '%s'; textArea.dispatchEvent(new Event('input')); }",
+                  position, gsub("'", "\\\\'", rt)
+                ),
+                rt
+              )
+            })
+          )
+        }
+      }
+      
+      # References section
+      if("Reference" %in% names(entries)) {
+        references <- unique(entries$Reference)
+        references <- references[!is.na(references) & references != ""]
+        
+        if(length(references) > 0) {
+          sections$references <- div(
+            class = "library-section",
+            div(class = "library-title", "References"),
+            lapply(references, function(ref) {
+              div(
+                class = "library-entry",
+                onclick = sprintf(
+                  "var textArea = document.getElementById('morphology_%s'); if(textArea) { if(textArea.value) textArea.value += '\\n'; textArea.value += '[%s]'; textArea.dispatchEvent(new Event('input')); }",
+                  position, gsub("'", "\\\\'", ref)
+                ),
+                ref
+              )
+            })
+          )
+        }
+      }
+      
+      # Return the complete panel if we have sections
+      if(length(sections) > 0) {
+        div(
+          class = "mineral-library-panel",
+          h4(paste("Reference Information for", mineral_name)),
+          do.call(tagList, sections)
+        )
+      } else {
+        div(
+          class = "mineral-library-panel",
+          p("No reference information available for this mineral.")
         )
       }
-    }
-    
-    # Rock types section
-    if("Rocks_type" %in% names(entries)) {
-      rock_types <- unique(entries$Rocks_type)
-      rock_types <- rock_types[!is.na(rock_types) & rock_types != ""]
-      
-      if(length(rock_types) > 0) {
-        sections$rock_types <- div(
-          class = "library-section",
-          div(class = "library-title", "Rock Types"),
-          lapply(rock_types, function(rt) {
-            div(
-              class = "library-entry",
-              onclick = sprintf(
-                "var textArea = document.getElementById('morphology_%s'); if(textArea) { if(textArea.value) textArea.value += '\\n'; textArea.value += '%s'; textArea.dispatchEvent(new Event('input')); }",
-                position, gsub("'", "\\\\'", rt)
-              ),
-              rt
-            )
-          })
-        )
-      }
-    }
-    
-    # References section
-    if("Reference" %in% names(entries)) {
-      references <- unique(entries$Reference)
-      references <- references[!is.na(references) & references != ""]
-      
-      if(length(references) > 0) {
-        sections$references <- div(
-          class = "library-section",
-          div(class = "library-title", "References"),
-          lapply(references, function(ref) {
-            div(
-              class = "library-entry",
-              onclick = sprintf(
-                "var textArea = document.getElementById('morphology_%s'); if(textArea) { if(textArea.value) textArea.value += '\\n'; textArea.value += '[%s]'; textArea.dispatchEvent(new Event('input')); }",
-                position, gsub("'", "\\\\'", ref)
-              ),
-              ref
-            )
-          })
-        )
-      }
-    }
-    
-    # Return the complete panel if we have sections
-    if(length(sections) > 0) {
+    }, error = function(e) {
+      # Return a simple error message if anything goes wrong
+      library_status(paste0(library_status(), "\nError in library panel: ", e$message))
       div(
         class = "mineral-library-panel",
-        h4(paste("Reference Information for", mineral_name)),
-        do.call(tagList, sections)
+        p("Error loading reference information. Please try again.")
       )
-    } else {
-      div(
-        class = "mineral-library-panel",
-        p("No reference information available for this mineral.")
-      )
-    }
+    })
   }
   
   # Open description form with multiple selected images
@@ -786,7 +900,7 @@ server <- function(input, output, session) {
         grainsize = input$selectedGrainsize,
         description = input$rockDescription,
         timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-        user = "westabraIt"
+        user = "westabraЧто"
       )
       
       # Update the stored descriptions for each selected image
